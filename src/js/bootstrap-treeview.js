@@ -2,7 +2,7 @@
  * bootstrap-treeview.js v1.0.0
  * =========================================================
  * Copyright 2013 Jonathan Miles 
- * Project URL : http://www.jondmiles.com/bootstrap-treeview
+ * Project URL : https://github.com/jonmiles/bootstrap-treeview
  *	
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,10 +45,12 @@
 
         levels: 2,
 
-        expandIcon: 'glyphicon glyphicon-plus',
-        collapseIcon: 'glyphicon glyphicon-minus',
-        emptyIcon: 'glyphicon',
-        nodeIcon: 'glyphicon glyphicon-stop',
+        expandIcon: 'fa fa-plus-square-o', //'glyphicon glyphicon-plus',
+        collapseIcon: 'fa fa-minus-square-o', //'glyphicon glyphicon-minus',
+        nodeIcon: '', //'glyphicon glyphicon-stop',
+        //expandIcon: 'glyphicon glyphicon-plus',
+        //collapseIcon: 'glyphicon glyphicon-minus',
+        //nodeIcon: 'glyphicon glyphicon-stop',
 
         color: undefined, // '#000000',
         backColor: undefined, // '#FFFFFF',
@@ -72,6 +74,14 @@
             this._destroy();
             $.removeData(this, 'plugin_' + pluginName);
             $('#' + this._styleId).remove();
+        },
+
+        data: function() {
+            return this.tree;
+        },
+
+        refresh: function() {
+            this._render();
         },
 
         _destroy: function() {
@@ -138,6 +148,11 @@
                 // Expand or collapse node by toggling child node visibility
                 this._toggleNodes(node);
                 this._render();
+            } else if (classList.indexOf('del-icon') != -1 || classList.indexOf('fa-trash-o') != -1) {
+                //$(event.target).remove();
+                this._deleteNode(node);
+                this._render();
+
             } else if (node) {
                 if (this._isSelectable(node)) {
                     this._setSelectedNode(node);
@@ -148,23 +163,53 @@
             }
         },
 
+        _deleteNode: function(node, searchRoot) {
+            searchRoot = searchRoot || this.tree;
+
+
+            for (var i = 0; i < searchRoot.length; i++) {
+                if (searchRoot[i] == node) {
+                    searchRoot.splice(i, 1);
+                    return true;
+                }
+
+                var childNodes = searchRoot[i].nodes;
+                if (childNodes) {
+                    var self = this;
+                    var isDeleted = false;
+                    $.each(childNodes, function(index, n) {
+                        isDeleted = self._deleteNode(n, childNodes);
+                        return !isDeleted; // break $.each if needed                        
+                    });
+
+                    if (childNodes.length == 0) {
+                        delete searchRoot[i].nodes; // remove expander icon for empty groups
+                    }
+
+                    return isDeleted;
+                }
+            }
+        },
         // Looks up the DOM for the closest parent list item to retrieve the 
         // data attribute nodeid, which is used to lookup the node in the flattened structure.
         _findNode: function(target) {
-
-            var nodeId = target.closest('li.list-group-item').attr('data-nodeid'),
+            var domElem = target.closest('li.list-group-item');
+            var nodeId = domElem.attr('data-nodeid'),
                 node = this.nodes[nodeId];
 
             if (!node) {
                 console.log('Error: node does not exist');
             }
+
+            node.domElem = domElem;
+
             return node;
         },
 
         // Actually triggers the nodeSelected event
         _triggerNodeSelectedEvent: function(node) {
 
-            this.$element.trigger('nodeSelected', [$.extend(true, {}, node)]);
+            this.$element.trigger('nodeSelected', !node ? null : [$.extend(true, {}, node)]);
         },
 
         // Handles selecting and unselecting of nodes, 
@@ -177,6 +222,7 @@
 
             if (node === this.selectedNode) {
                 this.selectedNode = {};
+                this._triggerNodeSelectedEvent(null);
             } else {
                 this._triggerNodeSelectedEvent(this.selectedNode = node);
             }
@@ -266,11 +312,14 @@
             $.each(nodes, function addNodes(id, node) {
 
                 node.nodeId = self.nodes.length;
+                node.level = level;
+
                 self.nodes.push(node);
 
                 var treeItem = $(self._template.item)
                     .addClass('node-' + self._elementId)
                     .addClass((node === self.selectedNode) ? 'node-selected' : '')
+                    .addClass('level-' + level)
                     .attr('data-nodeid', node.nodeId)
                     .attr('style', self._buildStyleOverride(node));
 
@@ -283,27 +332,31 @@
                 // to facilitate tree structure navigation
                 if (node._nodes) {
                     treeItem
-                        .append($(self._template.expandCollapseIcon)
-                            .addClass('click-expand')
-                            .addClass(self.options.expandIcon)
+                        .append($(self._template.iconWrapper)
+                            .append($(self._template.icon)
+                                .addClass('click-expand')
+                                .addClass(self.options.expandIcon))
                         );
                 } else if (node.nodes) {
                     treeItem
-                        .append($(self._template.expandCollapseIcon)
-                            .addClass('click-collapse')
-                            .addClass(self.options.collapseIcon)
+                        .append($(self._template.iconWrapper)
+                            .append($(self._template.icon)
+                                .addClass('click-collapse')
+                                .addClass(self.options.collapseIcon))
                         );
                 } else {
                     treeItem
-                        .append($(self._template.expandCollapseIcon)
-                            .addClass(self.options.emptyIcon)
+                        .append($(self._template.iconWrapper)
+                            .append($(self._template.icon)
+                                .addClass('glyphicon'))
                         );
                 }
 
                 // Add node icon
                 treeItem
-                    .append($(self._template.icon)
-                        .addClass(node.icon ? node.icon : self.options.nodeIcon)
+                    .append($(self._template.iconWrapper)
+                        .append($(self._template.icon)
+                            .addClass(node.icon ? node.icon : self.options.nodeIcon))
                     );
 
                 // Add text
@@ -329,6 +382,10 @@
                             );
                     });
                 }
+
+                // Add del icon
+                treeItem.append(self._template.delIcon);
+
 
                 // Add item to the tree
                 self.$wrapper.append(treeItem);
@@ -399,14 +456,17 @@
             list: '<ul class="list-group"></ul>',
             item: '<li class="list-group-item"></li>',
             indent: '<span class="indent"></span>',
-            expandCollapseIcon: '<span class="expand-collapse"></span>',
-            icon: '<span class="icon"></span>',
+            iconWrapper: '<span class="icon"></span>',
+            icon: '<i></i>',
             link: '<a href="#" style="color:inherit;"></a>',
-            badge: '<span class="badge"></span>'
+            badge: '<span class="badge"></span>',
+            delIcon: '<span class="del-icon pull-right"><i class="fa fa-trash-o"></i></span>'
         },
 
-        _css: '.list-group-item{cursor:pointer;}span.indent{margin-left:10px;margin-right:10px}span.expand-collapse{width:1rem;height:1rem}span.icon{margin-left:10px;margin-right:5px}'
-        // _css: '.list-group-item{cursor:pointer;}.list-group-item:hover{background-color:#f5f5f5;}span.indent{margin-left:10px;margin-right:10px}span.icon{margin-right:5px}'
+        //_css: '.list-group-item{cursor:pointer;}span.indent{margin-left:10px;margin-right:10px}span.icon{margin-right:5px}'
+        _css: '.list-group-item{cursor:default;}.list-group-item:hover{background-color:#f5f5f5;}span.indent{margin-left:10px;margin-right:10px}span.icon{margin-right:5px}' +
+            '.list-group-item .click-collapse, .list-group-item .del-icon{cursor:pointer;}'
+
 
     };
 
@@ -419,26 +479,44 @@
     // Prevent against multiple instantiations,
     // handle updates and method calls
     $.fn[pluginName] = function(options, args) {
-        return this.each(function() {
-            var self = $.data(this, 'plugin_' + pluginName);
-            if (typeof options === 'string') {
-                if (!self) {
-                    logError('Not initialized, can not call method : ' + options);
-                } else if (!$.isFunction(self[options]) || options.charAt(0) === '_') {
-                    logError('No such method : ' + options);
-                } else {
-                    if (typeof args === 'string') {
-                        args = [args];
-                    }
-                    self[options].apply(self, args);
-                }
+        if (this.length === 1 && typeof options === 'string') {
+            var self = $.data(this[0], 'plugin_' + pluginName);
+
+            if (!self) {
+                logError('Not initialized, can not call method : ' + options);
+            } else if (!$.isFunction(self[options]) || options.charAt(0) === '_') {
+                logError('No such method : ' + options);
             } else {
-                if (!self) {
-                    $.data(this, 'plugin_' + pluginName, new Tree(this, $.extend(true, {}, options)));
-                } else {
-                    self._init(options);
+                if (typeof args === 'string') {
+                    args = [args];
                 }
+                return self[options].apply(self, args);
             }
+        }
+
+        return this.each(function() {
+            self = $.data(this, 'plugin_' + pluginName);
+            //if (typeof options === 'string') {
+            //	if (!self) {
+            //		logError('Not initialized, can not call method : ' + options);
+            //	}
+            //	else if (!$.isFunction(self[options]) || options.charAt(0) === '_') {
+            //		logError('No such method : ' + options);
+            //	}
+            //	else {
+            //		if (typeof args === 'string') {
+            //			args = [args];
+            //		}
+            //		return self[options].apply(self, args);
+            //	}
+            //}
+            //else {
+            if (!self) {
+                $.data(this, 'plugin_' + pluginName, new Tree(this, $.extend(true, {}, options)));
+            } else {
+                self._init(options);
+            }
+            //}
         });
     };
 
